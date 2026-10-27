@@ -1,0 +1,6 @@
+{
+  "name": "UtkalSarathi - Smart Tourism & Safety for Odisha",
+  "description": "AI-powered multilingual smart tourism, cultural discovery, transport pricing, and UtkalSuraksha traveller safety platform for Odisha.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
