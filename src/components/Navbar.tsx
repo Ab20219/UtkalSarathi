@@ -1,6 +1,18 @@
 import React from 'react';
 import { SupportedLanguage } from '../types';
-import { ShieldAlert, Compass, Bus, Volume2, UtensilsCrossed, Bot, Download, Globe, Milestone } from 'lucide-react';
+import { usePlatform } from '../context/PlatformContext';
+import {
+  ShieldAlert,
+  Compass,
+  Bus,
+  Volume2,
+  UtensilsCrossed,
+  Bot,
+  Download,
+  Globe,
+  Milestone,
+  Search,
+} from 'lucide-react';
 
 interface NavbarProps {
   currentTab: string;
@@ -21,6 +33,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenOffline,
   isOfflineReady,
 }) => {
+  const { modKey, activeOS } = usePlatform();
   return (
     <header className="sticky top-0 z-40 bg-stone-900/95 backdrop-blur-md border-b border-amber-900/40 text-stone-100 shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -79,6 +92,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <ShieldAlert className="w-4 h-4" />
               <span>SOS (112)</span>
+            </button>
+
+            {/* Quick AI Search Assistant Trigger with Desktop Shortcut */}
+            <button
+              onClick={() => setCurrentTab('assistant')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg bg-purple-950/60 hover:bg-purple-900/70 border border-purple-500/40 text-purple-200 text-xs sm:text-sm font-semibold transition-colors"
+              title={`Ask Utkal Mitra Travel Assistant (${modKey}K)`}
+              aria-label="Open Utkal Mitra AI Assistant"
+            >
+              <Bot className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden sm:inline">Ask AI</span>
+              <kbd className="hidden lg:inline-block px-1.5 py-0.2 rounded bg-purple-900/60 text-[10px] font-mono text-purple-300 border border-purple-700">
+                {modKey}K
+              </kbd>
             </button>
 
             {/* Offline Pack */}
@@ -144,9 +171,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
+            title={`3-Day Tailored Itinerary Planner (${modKey}1)`}
           >
             <Compass className="w-4 h-4 text-amber-400" />
-            <span>Discover & Itinerary</span>
+            <span>Discover &amp; Itinerary</span>
+            <kbd className="hidden xl:inline-block px-1 py-0.2 rounded bg-stone-850 text-[9px] font-mono text-stone-400 border border-stone-750">
+              {modKey}1
+            </kbd>
           </button>
 
           <button
@@ -156,9 +187,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
+            title={`Interactive Odisha Geo-Map (${modKey}2)`}
           >
             <Compass className="w-4 h-4 text-teal-400" />
             <span>Odisha Geo-Map</span>
+            <kbd className="hidden xl:inline-block px-1 py-0.2 rounded bg-stone-850 text-[9px] font-mono text-stone-400 border border-stone-750">
+              {modKey}2
+            </kbd>
           </button>
 
           <button
@@ -168,9 +203,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
+            title={`Regulated Mo Bus & Train Transit Matrix (${modKey}3)`}
           >
             <Bus className="w-4 h-4 text-emerald-400" />
-            <span>Transit & Fair Fares</span>
+            <span>Transit &amp; Fair Fares</span>
+            <kbd className="hidden xl:inline-block px-1 py-0.2 rounded bg-stone-850 text-[9px] font-mono text-stone-400 border border-stone-750">
+              {modKey}3
+            </kbd>
           </button>
 
           <button
@@ -180,9 +219,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
+            title={`UtkalSuraksha Emergency SOS & Safety Hub (${modKey}6)`}
           >
             <ShieldAlert className="w-4 h-4 text-red-400" />
             <span>UtkalSuraksha (Safety)</span>
+            <kbd className="hidden xl:inline-block px-1 py-0.2 rounded bg-stone-850 text-[9px] font-mono text-stone-400 border border-stone-750">
+              {modKey}6
+            </kbd>
           </button>
 
           <button
@@ -192,9 +235,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
+            title={`Utkal Katha 13 Historic Audio Chronicles (${modKey}4)`}
           >
             <Volume2 className="w-4 h-4 text-cyan-400" />
             <span>Utkal Katha (Voice Stories)</span>
+            <kbd className="hidden xl:inline-block px-1 py-0.2 rounded bg-stone-850 text-[9px] font-mono text-stone-400 border border-stone-750">
+              {modKey}4
+            </kbd>
           </button>
 
           <button
@@ -204,9 +251,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
                 : 'text-stone-300 hover:text-white hover:bg-stone-800'
             }`}
+            title={`GI Tag Cuisine & Handloom Artisan Directory (${modKey}5)`}
           >
             <UtensilsCrossed className="w-4 h-4 text-orange-400" />
-            <span>Cuisine & Artisans</span>
+            <span>Cuisine &amp; Artisans</span>
+            <kbd className="hidden xl:inline-block px-1 py-0.2 rounded bg-stone-850 text-[9px] font-mono text-stone-400 border border-stone-750">
+              {modKey}5
+            </kbd>
           </button>
 
           <button
@@ -218,7 +269,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Milestone className="w-4 h-4 text-amber-400" />
-            <span>Roadmap & Vision</span>
+            <span>Roadmap &amp; Vision</span>
           </button>
 
           <button

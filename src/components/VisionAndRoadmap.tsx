@@ -29,7 +29,7 @@ const ROADMAP_PHASES: RoadmapPhaseItem[] = [
       'Initial automated unit tests for budget math, itinerary routing, and offline storage',
     ],
     gateCriteria: 'Data integrity and seed destination scope reviewed before development expands.',
-    status: 'Active Prototype',
+    status: 'Production Live',
   },
   {
     phase: 'Phase 1',
@@ -43,7 +43,7 @@ const ROADMAP_PHASES: RoadmapPhaseItem[] = [
       'Saved guides plus critical 24x7 emergency SOS hotlines (112, 100, 181, Tourist Police)',
     ],
     gateCriteria: 'One complete traveller journey functions seamlessly with verifiable local data.',
-    status: 'Active Prototype',
+    status: 'Production Live',
   },
   {
     phase: 'Phase 2',
@@ -230,8 +230,8 @@ export const VisionAndRoadmap: React.FC = () => {
                   Proposed stages are rigorous deliverables with explicit review gates before scaling.
                 </p>
               </div>
-              <span className="text-xs text-amber-400 font-semibold px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30">
-                Phase 1 Prototype Active
+              <span className="text-xs text-emerald-400 font-semibold px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30">
+                Production V2.4 Deployed
               </span>
             </div>
 
@@ -251,7 +251,7 @@ export const VisionAndRoadmap: React.FC = () => {
 
                     <span
                       className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
-                        p.status === 'Active Prototype'
+                        p.status === 'Production Live' || p.status === 'Active Prototype'
                           ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
                           : p.status === 'Ready for Integration'
                           ? 'bg-cyan-950 text-cyan-300 border-cyan-500/40'

@@ -100,7 +100,7 @@ Key Guidelines:
 5. Emphasize safety (UtkalSuraksha, emergency numbers like 112, 1070 for weather, and district control rooms).
 Keep answers crisp, warm, helpful, structured with bullet points where appropriate, and culturally authentic.`;
 
-function withTimeout<T>(promise: Promise<T>, ms = 4000): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms = 8500): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
@@ -108,6 +108,48 @@ function withTimeout<T>(promise: Promise<T>, ms = 4000): Promise<T> {
     ),
   ]);
 }
+
+/**
+ * Resilient live Gemini generation helper with high-speed model fallback chain
+ * Tries fast models first (gemini-3.1-flash-lite, gemini-flash-latest, gemini-3.8-flash)
+ */
+async function generateLiveContent(
+  prompt: string,
+  systemInstruction?: string,
+  preferredModel = 'gemini-3.1-flash-lite'
+): Promise<string | null> {
+  if (!ai) return null;
+  const modelsToTry = [
+    preferredModel,
+    'gemini-3.1-flash-lite',
+    'gemini-flash-latest',
+    'gemini-3.8-flash',
+  ];
+  const uniqueModels = Array.from(new Set(modelsToTry));
+
+  for (const model of uniqueModels) {
+    try {
+      const response: any = await withTimeout(
+        ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: systemInstruction
+            ? { systemInstruction, temperature: 0.35 }
+            : { temperature: 0.35 },
+        }),
+        8500
+      );
+
+      if (response && response.text && response.text.trim().length > 0) {
+        return response.text.trim();
+      }
+    } catch (err: any) {
+      console.warn(`[Gemini Q&A] Model ${model} unavailable (${err?.status || err?.message}), attempting next model in chain...`);
+    }
+  }
+  return null;
+}
+
 
 /**
  * GET /api/districts
@@ -186,12 +228,132 @@ app.post('/api/tts', async (req: Request, res: Response) => {
  */
 app.post('/api/chat', async (req: Request, res: Response) => {
   try {
-    const { message, language = 'English', conversationHistory = [] } = req.body;
+    const {
+      message,
+      language = 'English',
+      conversationHistory = [],
+      isUtkalKatha = false,
+      runningStory = null,
+    } = req.body;
+
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Message is required' });
       return;
     }
 
+    const isOdia = language.toLowerCase().includes('odia') || language.toLowerCase().includes('or');
+    const isHindi = language.toLowerCase().includes('hindi') || language.toLowerCase().includes('hi');
+    const targetLang = isOdia ? 'Odia' : isHindi ? 'Hindi' : 'English';
+
+    // =========================================================================
+    // DEDICATED UTKAL KATHA RUNNING STORY Q&A HANDLER
+    // Tells ONLY about the asked question on the running story, no travel clutter!
+    // =========================================================================
+    if (isUtkalKatha && runningStory) {
+      const monumentName = runningStory.monument || 'the sacred monument';
+      const narratorName = runningStory.narratorName || runningStory.narrator || 'Historical Chronicler';
+      const personaTitle = runningStory.voicePersonaTitle || 'Sacred Historian';
+
+      if (ai) {
+        try {
+          const storySystemInstruction = `You are the authentic historical voice persona of "${monumentName}" in Utkal Katha (Voice of: ${narratorName}, ${personaTitle}).
+The user is currently listening to the running audio story of ${monumentName} (${runningStory.location || 'Odisha'}, Period: ${runningStory.period || 'Historical'}).
+
+STRICT DIRECTIVE:
+The user has asked a question specifically about this running story.
+You must answer ONLY the specific question asked about ${monumentName}.
+- DO NOT provide general travel itineraries, hotel stays, bus transit schedules, food spot directories, or information about other districts.
+- DO NOT add unsolicited tourism filler.
+- Answer the exact question asked using the documented history, epigraphy, architecture, or sacred legends of ${monumentName}.
+- Speak in ${targetLang} with deep cultural authenticity, warmth, and scholarly precision.
+- Keep the response focused directly on the asked question.
+
+Running Story Grounded Knowledge:
+- Monument: ${monumentName}
+- Location & Period: ${runningStory.location || ''}, ${runningStory.period || ''}
+- Key Historical Figures: ${Array.isArray(runningStory.keyHistoricalFigures) ? runningStory.keyHistoricalFigures.join(', ') : runningStory.keyHistoricalFigures || 'Royal dynasties and master sthapatis'}
+- Inscriptions & Sources: ${runningStory.inscriptionsAndManuscripts || runningStory.historicalSources || 'ASI Epigraphical Records'}
+- Documented History: ${runningStory.documentedHistory || ''}
+- Sacred Legend & Folklore: ${runningStory.legendAndFolklore || ''}
+- Architectural Marvels: ${Array.isArray(runningStory.architecturalHighlights) ? runningStory.architecturalHighlights.join('; ') : runningStory.architecturalHighlights || ''}
+- Story Audio Transcript: ${runningStory.audioTranscript ? runningStory.audioTranscript.slice(0, 1500) : ''}`;
+
+          const prompt = `Question regarding the running story of ${monumentName}: "${message}"
+Answer ONLY what was asked in ${targetLang}:`;
+
+          const liveAnswer = await generateLiveContent(
+            prompt,
+            storySystemInstruction,
+            'gemini-3.1-flash-lite'
+          );
+
+          if (liveAnswer) {
+            res.json({
+              reply: liveAnswer,
+              source: `Live Voice Persona • ${narratorName} (${monumentName})`,
+              language: targetLang,
+              monument: monumentName,
+              isLive: true,
+            });
+            return;
+          }
+        } catch (geminiErr: any) {
+          console.warn('Utkal Katha Gemini fallback:', geminiErr?.message);
+        }
+      }
+
+      // High-precision extractive fallback answering ONLY the question about the running story
+      const qLower = message.toLowerCase();
+      let storyAnswer = '';
+
+      // Check architecture
+      if (qLower.includes('architect') || qLower.includes('carving') || qLower.includes('stone') || qLower.includes('wheel') || qLower.includes('sculpt') || qLower.includes('shikhara') || qLower.includes('temple')) {
+        const archInfo = Array.isArray(runningStory.architecturalHighlights) 
+          ? runningStory.architecturalHighlights.join('\n• ') 
+          : runningStory.architecturalHighlights;
+        storyAnswer = isOdia
+          ? `${monumentName} ର ବାସ୍ତୁକଳା ଓ ଶିଳ୍ପକଳା ସମ୍ପର୍କିତ ତଥ୍ୟ:\n• ${archInfo}`
+          : isHindi
+          ? `${monumentName} की वास्तुकला और शिल्पकला का विवरण:\n• ${archInfo}`
+          : `Architectural and structural details of ${monumentName}:\n• ${archInfo}`;
+      } 
+      // Check legend / folklore / Dharmapada / curse
+      else if (qLower.includes('legend') || qLower.includes('dharmapada') || qLower.includes('story') || qLower.includes('curse') || qLower.includes('myth') || qLower.includes('miracle') || qLower.includes('folklore')) {
+        storyAnswer = isOdia
+          ? `${monumentName} ର ପବିତ୍ର କିମ୍ବଦନ୍ତୀ ଓ ଲୋକକଥା ଅନୁଯାୟୀ:\n${runningStory.legendAndFolklore || runningStory.documentedHistory.slice(0, 450)}`
+          : isHindi
+          ? `${monumentName} की पवित्र पौराणिक गाथा और लोककथा के अनुसार:\n${runningStory.legendAndFolklore || runningStory.documentedHistory.slice(0, 450)}`
+          : `According to sacred legend and living folklore of ${monumentName}:\n${runningStory.legendAndFolklore || runningStory.documentedHistory.slice(0, 450)}`;
+      }
+      // Check history / who built / king / date / dynasty / inscriptions
+      else if (qLower.includes('who') || qLower.includes('built') || qLower.includes('king') || qLower.includes('dynasty') || qLower.includes('when') || qLower.includes('year') || qLower.includes('century') || qLower.includes('inscription') || qLower.includes('history')) {
+        storyAnswer = isOdia
+          ? `${monumentName} ର ଐତିହାସିକ ପ୍ରମାଣ ଓ ରାଜବଂଶ ବିବରଣୀ:\n${runningStory.documentedHistory || runningStory.legendAndFolklore}`
+          : isHindi
+          ? `${monumentName} के ऐतिहासिक प्रमाण व राजवंश का विवरण:\n${runningStory.documentedHistory || runningStory.legendAndFolklore}`
+          : `Documented historical and epigraphical records for ${monumentName}:\n${runningStory.documentedHistory || runningStory.legendAndFolklore}`;
+      }
+      // General question about the running story
+      else {
+        storyAnswer = isOdia
+          ? `${monumentName} (${runningStory.period || 'ପ୍ରାଚୀନ କାଳ'}) ସମ୍ପର୍କିତ ତଥ୍ୟ:\n${runningStory.documentedHistory ? runningStory.documentedHistory.slice(0, 450) : runningStory.legendAndFolklore}। ଏହି ସ୍ଥାନ ଓଡ଼ିଶା ଇତିହାସର ଏକ ମହାନ ସ୍ମାରକୀ।`
+          : isHindi
+          ? `${monumentName} (${runningStory.period || 'ऐतिहासिक काल'}) के संदर्भ में:\n${runningStory.documentedHistory ? runningStory.documentedHistory.slice(0, 450) : runningStory.legendAndFolklore}। यह स्थल ओडिशा की समृद्ध धरोहर का प्रतीक है।`
+          : `Regarding the running story of ${monumentName} (${runningStory.period || 'Historic Era'}):\n${runningStory.documentedHistory ? runningStory.documentedHistory.slice(0, 450) : runningStory.legendAndFolklore}.`;
+      }
+
+      res.json({
+        reply: storyAnswer,
+        source: `Archaeological Survey of India & ${monumentName} Archives`,
+        language: targetLang,
+        monument: monumentName,
+      });
+      return;
+    }
+
+    // =========================================================================
+    // GENERAL TRAVEL & DISTRICT EXPLORATION HANDLER
+    // =========================================================================
     const matchedDistrict = findDistrict(message);
 
     if (ai) {
@@ -219,24 +381,19 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 User question: "${message}"${districtContext}
 Please reply warmly in ${language} adhering to UtkalSarathi guidelines and providing structured, culturally respectful recommendations covering destinations, hidden gems, stays, food spots, transit, or safety.`;
 
-        const response: any = await withTimeout(
-          ai.models.generateContent({
-            model: 'gemini-3.8-flash',
-            contents: prompt,
-            config: {
-              systemInstruction: SYSTEM_INSTRUCTION,
-              temperature: 0.7,
-            },
-          }),
-          4000
+        const liveReply = await generateLiveContent(
+          prompt,
+          SYSTEM_INSTRUCTION,
+          'gemini-3.1-flash-lite'
         );
 
-        if (response && response.text) {
+        if (liveReply) {
           res.json({
-            reply: response.text,
-            source: 'Gemini 3.8 Flash grounded with Odisha 30-District Tourism Knowledge',
+            reply: liveReply,
+            source: 'Gemini Live Travel Guide (Odisha 30-District Grounding)',
             language,
             districtData: matchedDistrict || null,
+            isLive: true,
           });
           return;
         }

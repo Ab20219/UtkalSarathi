@@ -1,4 +1,5 @@
 export type SupportedLanguage = 'en' | 'or' | 'hi';
+export type TabType = 'discover' | 'map' | 'transit' | 'stories' | 'culture' | 'safety' | 'roadmap';
 
 export type ReliabilitySourceLevel =
   | 'verified_official'
@@ -115,5 +116,5 @@ export interface RoadmapPhaseItem {
   scope: string;
   deliverables: string[];
   gateCriteria: string;
-  status: 'Active Prototype' | 'Ready for Integration' | 'Future Scaling';
+  status: 'Production Live' | 'Ready for Integration' | 'Future Scaling' | 'Active Prototype';
 }

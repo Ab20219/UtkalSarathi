@@ -1387,7 +1387,7 @@ ${currentTranscript}
                 </button>
 
                 <span className="text-[10px] text-stone-500 font-mono">
-                  Engine: {activeAudioSourceType === 'ai_hd' ? 'AI Studio HD' : 'Indic Synthesizer'}
+                  Engine: {activeAudioSourceType === 'ai_hd' ? 'Utkal Sound Studio HD' : 'Indic Synthesizer'}
                 </span>
               </div>
             </div>

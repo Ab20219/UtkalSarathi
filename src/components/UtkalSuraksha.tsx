@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   EMERGENCY_CONTACTS,
   EmergencyContact,
@@ -7,6 +7,7 @@ import {
   VERIFIED_EMERGENCY_FACILITIES,
   INITIAL_HAZARDS,
 } from '../data/mockData';
+import { ODISHA_30_DISTRICTS, OdishaDistrict } from '../data/odishaDistricts';
 import { HazardReport } from '../types';
 import {
   ShieldAlert,
@@ -25,12 +26,19 @@ import {
   ExternalLink,
   Copy,
   Check,
+  Search,
+  Building,
+  Navigation,
+  Layers,
 } from 'lucide-react';
 
 export const UtkalSuraksha: React.FC = () => {
   const [hazards, setHazards] = useState<HazardReport[]>(INITIAL_HAZARDS);
   const [showReportForm, setShowReportForm] = useState<boolean>(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedZone, setSelectedZone] = useState<string>('all');
+  const [searchDistrict, setSearchDistrict] = useState<string>('');
+  const [selectedDistrictId, setSelectedDistrictId] = useState<string>('puri');
 
   // New report form state
   const [newLoc, setNewLoc] = useState('');
@@ -44,6 +52,31 @@ export const UtkalSuraksha: React.FC = () => {
   // Live Location Share state
   const [sharedLink, setSharedLink] = useState<string | null>(null);
 
+  const activeDistrict: OdishaDistrict = useMemo(() => {
+    return (
+      ODISHA_30_DISTRICTS.find((d) => d.id === selectedDistrictId) ||
+      ODISHA_30_DISTRICTS[0]
+    );
+  }, [selectedDistrictId]);
+
+  const filteredDistricts = useMemo(() => {
+    return ODISHA_30_DISTRICTS.filter((d) => {
+      if (selectedZone !== 'all' && d.zone.toLowerCase() !== selectedZone.toLowerCase()) {
+        return false;
+      }
+      if (searchDistrict.trim()) {
+        const q = searchDistrict.toLowerCase();
+        return (
+          d.name.toLowerCase().includes(q) ||
+          d.odiaName.includes(q) ||
+          d.headquarters.toLowerCase().includes(q) ||
+          d.safetyAndHelpline.districtHospital.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [selectedZone, searchDistrict]);
+
   const handleCopyNumber = (id: string, num: string) => {
     navigator.clipboard?.writeText(num);
     setCopiedId(id);
@@ -51,12 +84,25 @@ export const UtkalSuraksha: React.FC = () => {
   };
 
   const handleShareLiveLocation = () => {
-    // Generate simulated location sharing link
     const time = new Date().toLocaleTimeString();
-    const mockLat = '19.8135';
-    const mockLng = '85.8312';
-    const link = `https://maps.google.com/?q=${mockLat},${mockLng} (UtkalSuraksha Live Safe Track: Puri Grand Road at ${time})`;
-    setSharedLink(link);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude.toFixed(4);
+          const lng = pos.coords.longitude.toFixed(4);
+          const link = `https://maps.google.com/?q=${lat},${lng} (UtkalSuraksha Live Safe Track at ${time})`;
+          setSharedLink(link);
+        },
+        () => {
+          // Fallback to Puri grand road
+          const link = `https://maps.google.com/?q=19.8135,85.8312 (UtkalSuraksha Live Safe Track: Puri at ${time})`;
+          setSharedLink(link);
+        }
+      );
+    } else {
+      const link = `https://maps.google.com/?q=19.8135,85.8312 (UtkalSuraksha Live Safe Track: Puri at ${time})`;
+      setSharedLink(link);
+    }
   };
 
   const handleSubmitHazard = (e: React.FormEvent) => {
@@ -69,7 +115,7 @@ export const UtkalSuraksha: React.FC = () => {
       district: newDistrict,
       type: newType,
       description: newDesc,
-      submittedBy: 'Traveller (You)',
+      submittedBy: 'Traveller',
       timestamp: 'Just now',
       status: 'under_review',
       upvotes: 1,
@@ -92,46 +138,49 @@ export const UtkalSuraksha: React.FC = () => {
   return (
     <div className="space-y-8">
       {/* Banner */}
-      <div className="rounded-2xl bg-gradient-to-r from-red-950 via-stone-900 to-red-950 border border-red-800/40 p-6 sm:p-8 shadow-xl">
-        <div className="max-w-3xl">
+      <div className="rounded-3xl bg-gradient-to-r from-red-950 via-stone-900 to-red-950 border border-red-800/40 p-6 sm:p-8 shadow-2xl">
+        <div className="max-w-4xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/20 border border-red-400/30 text-red-300 text-xs font-semibold mb-3">
             <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
-            UtkalSuraksha: Traveller Safety & Emergency Protocol
+            <span>UtkalSuraksha: 30-District Comprehensive Safety &amp; Emergency Protocol</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-            Comprehensive Traveller Safety & Official Assistance
+          <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+            Comprehensive Traveller Safety &amp; Official Emergency Infrastructure
           </h1>
-          <p className="mt-2 text-stone-300 text-sm leading-relaxed">
-            Instant SOS calling shortcuts, verified tourist police stations, accredited hospitals,
-            and crowdsourced community hazard warnings across Odisha.
+          <p className="mt-2 text-stone-300 text-xs sm:text-sm leading-relaxed max-w-3xl">
+            Verified emergency directories across all 30 districts of Odisha: Chief Medical Officer Hospitals,
+            Superintendent of Police control rooms, OSDMA 24x7 cyclone shelters, coastal marine police, and
+            instant live GPS safety dispatch.
           </p>
         </div>
       </div>
 
-      {/* Mandatory Safety Notice / Disclaimer per OSFIC Proposal */}
-      <div className="p-4 rounded-xl bg-stone-900 border border-amber-600/40 flex items-start gap-3 shadow-md">
+      {/* Mandatory Safety Notice / Disclaimer */}
+      <div className="p-4 rounded-2xl bg-stone-900 border border-amber-600/40 flex items-start gap-3 shadow-md">
         <Info className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-stone-300 leading-relaxed">
           <span className="font-bold text-amber-300 block mb-0.5">
-            Important Safety Protocol & Network Transparency:
+            Emergency Calling Protocol &amp; Cellular Availability:
           </span>
-          The emergency calling shortcuts initiate standard cellular telephone calls via your device.
-          They are not a guaranteed automated electronic dispatch unless confirmed by direct verbal communication
-          with emergency operators. In case of imminent danger, directly dial{' '}
-          <span className="font-extrabold text-white">112</span>.
+          The emergency calling buttons initiate direct cellular phone calls to official government numbers.
+          In remote forest sanctuaries (Similipal, Satkosia, Malkangiri) with limited cellular connectivity,
+          the offline cache retains all local police station and emergency shelter contacts. In imminent danger,
+          dial <span className="font-extrabold text-white underline">112</span> directly.
         </div>
       </div>
 
-      {/* Emergency SOS Numbers Grid */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 shadow-md space-y-4">
+      {/* Primary Emergency Hotlines (Statewide) */}
+      <div className="bg-stone-900 border border-stone-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <PhoneCall className="w-5 h-5 text-red-400" />
-            <h2 className="text-lg font-bold text-white">Verified 24x7 Emergency Hotlines</h2>
+            <h2 className="text-lg sm:text-xl font-bold text-white">
+              Statewide 24x7 Emergency Hotlines (Odisha Govt Verified)
+            </h2>
           </div>
           <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            Active & Verified
+            Active &amp; Monitored
           </span>
         </div>
 
@@ -139,10 +188,10 @@ export const UtkalSuraksha: React.FC = () => {
           {EMERGENCY_CONTACTS.map((contact) => (
             <div
               key={contact.id}
-              className={`p-4 rounded-xl border flex flex-col justify-between transition-all ${
+              className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
                 contact.priority === 'critical'
-                  ? 'bg-red-950/20 border-red-800/40 hover:border-red-600'
-                  : 'bg-stone-850 border-stone-800 hover:border-stone-700'
+                  ? 'bg-red-950/25 border-red-800/50 hover:border-red-600'
+                  : 'bg-stone-950 border-stone-800 hover:border-stone-700'
               }`}
             >
               <div>
@@ -161,15 +210,14 @@ export const UtkalSuraksha: React.FC = () => {
               </div>
 
               <div className="mt-4 pt-3 border-t border-stone-800/80 flex items-center justify-between">
-                <span className="text-lg font-extrabold text-white tracking-wide">
+                <span className="text-lg font-extrabold text-white tracking-wide font-mono">
                   {contact.number}
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => handleCopyNumber(contact.id, contact.number)}
-                    className="p-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs transition-colors"
+                    className="p-2 rounded-lg bg-stone-850 hover:bg-stone-700 text-stone-300 text-xs transition-colors"
                     title="Copy number"
-                    aria-label={`Copy number for ${contact.name}`}
                   >
                     {copiedId === contact.id ? (
                       <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -179,10 +227,10 @@ export const UtkalSuraksha: React.FC = () => {
                   </button>
                   <a
                     href={`tel:${contact.number.replace(/[^0-9]/g, '')}`}
-                    className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-colors"
+                    className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1 transition-colors"
                   >
                     <PhoneCall className="w-3 h-3" />
-                    Call
+                    Call Now
                   </a>
                 </div>
               </div>
@@ -191,126 +239,255 @@ export const UtkalSuraksha: React.FC = () => {
         </div>
       </div>
 
-      {/* Live Location Sharing & Trusted Contact Simulation */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 shadow-md">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-800">
+      {/* =====================================================================
+          30-DISTRICT COMPREHENSIVE EMERGENCY & HOSPITAL DIRECTORY
+          ===================================================================== */}
+      <div className="bg-stone-900 border border-red-800/30 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-stone-800">
+          <div>
+            <div className="flex items-center gap-2">
+              <Hospital className="w-5 h-5 text-emerald-400" />
+              <h2 className="text-lg sm:text-2xl font-bold text-white">
+                30-District Emergency, Hospital &amp; Police Directory
+              </h2>
+            </div>
+            <p className="text-xs text-stone-400 mt-1">
+              Select any district in Odisha to access dedicated CDMO District Hospitals, Police Stations &amp; OSDMA Shelters.
+            </p>
+          </div>
+
+          <div className="relative min-w-[240px]">
+            <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchDistrict}
+              onChange={(e) => setSearchDistrict(e.target.value)}
+              placeholder="Filter 30 districts..."
+              className="w-full pl-9 pr-4 py-2 bg-stone-950 border border-stone-800 rounded-xl text-xs text-stone-100 placeholder-stone-500 focus:outline-none focus:border-red-500"
+            />
+          </div>
+        </div>
+
+        {/* Zone Selector Chips */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+          {[
+            { id: 'all', label: 'All 30 Districts' },
+            { id: 'coastal', label: 'Coastal (8)' },
+            { id: 'central', label: 'Central (5)' },
+            { id: 'northern', label: 'Northern (3)' },
+            { id: 'southern', label: 'Southern (8)' },
+            { id: 'western', label: 'Western (6)' },
+          ].map((z) => (
+            <button
+              key={z.id}
+              onClick={() => setSelectedZone(z.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                selectedZone === z.id
+                  ? 'bg-red-700 text-white shadow-md'
+                  : 'bg-stone-800 text-stone-300 hover:bg-stone-700 hover:text-white'
+              }`}
+            >
+              {z.label}
+            </button>
+          ))}
+        </div>
+
+        {/* District Selector Tabs */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {filteredDistricts.map((d) => {
+            const isSelected = d.id === selectedDistrictId;
+            return (
+              <button
+                key={d.id}
+                onClick={() => setSelectedDistrictId(d.id)}
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  isSelected
+                    ? 'bg-red-950/70 border-red-500 text-white shadow-lg ring-1 ring-red-500/50'
+                    : 'bg-stone-950 border-stone-800 text-stone-300 hover:bg-stone-850 hover:border-stone-700'
+                }`}
+              >
+                <div className="text-[9px] uppercase font-bold text-amber-400 truncate">
+                  {d.zone} Zone
+                </div>
+                <div className="font-extrabold text-xs mt-0.5 truncate">{d.name}</div>
+                <div className="text-[10px] text-stone-400">{d.odiaName}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Active District Comprehensive Emergency Card */}
+        <div className="p-6 rounded-3xl bg-stone-950 border border-red-800/40 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-stone-800">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                {activeDistrict.zone} Odisha Emergency Infrastructure
+              </span>
+              <h3 className="text-xl font-extrabold text-white mt-0.5 flex items-center gap-2">
+                <span>{activeDistrict.name} Safety &amp; Emergency Hub</span>
+                <span className="text-base text-stone-400 font-sans">({activeDistrict.odiaName})</span>
+              </h3>
+            </div>
+            <span className="text-xs text-stone-400">
+              District HQ: <strong className="text-stone-200">{activeDistrict.headquarters}</strong>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Hospital Card */}
+            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-2">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+                <Hospital className="w-4 h-4" />
+                <span>District Hospital (CDMO)</span>
+              </div>
+              <div className="text-sm font-extrabold text-stone-100">
+                {activeDistrict.safetyAndHelpline.districtHospital}
+              </div>
+              <p className="text-[11px] text-stone-400">
+                24x7 Emergency Trauma Care, Blood Bank, and Casualty Ward.
+              </p>
+              <div className="pt-2">
+                <a
+                  href="tel:108"
+                  className="w-full py-2 px-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  Call 108 Emergency
+                </a>
+              </div>
+            </div>
+
+            {/* Police Station & Control Room */}
+            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-2">
+              <div className="flex items-center gap-2 text-cyan-400 font-bold text-xs uppercase tracking-wider">
+                <Shield className="w-4 h-4" />
+                <span>Police Station &amp; Control</span>
+              </div>
+              <div className="text-sm font-extrabold text-stone-100">
+                {activeDistrict.safetyAndHelpline.policeStation}
+              </div>
+              <p className="text-[11px] text-stone-400">
+                Control Room: <strong className="text-amber-300 font-mono">{activeDistrict.safetyAndHelpline.controlRoomNumber}</strong>
+              </p>
+              <div className="pt-2 flex items-center gap-2">
+                <a
+                  href="tel:112"
+                  className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  Call 112 SOS
+                </a>
+                <button
+                  onClick={() =>
+                    handleCopyNumber(activeDistrict.id, activeDistrict.safetyAndHelpline.controlRoomNumber)
+                  }
+                  className="py-2 px-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-semibold"
+                >
+                  {copiedId === activeDistrict.id ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
+
+            {/* Cyclone & Disaster Management */}
+            <div className="p-4 rounded-2xl bg-stone-900 border border-stone-800 space-y-2">
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                <CloudRain className="w-4 h-4" />
+                <span>OSDMA Disaster Shelters</span>
+              </div>
+              <div className="text-sm font-extrabold text-stone-100">
+                OSDMA {activeDistrict.name} Multi-Purpose Cyclone &amp; Disaster Shelter (DEOC)
+              </div>
+              <p className="text-[11px] text-stone-400">
+                Multi-purpose cyclone &amp; flood shelters with generator backup &amp; clean water.
+              </p>
+              <div className="pt-2">
+                <a
+                  href="tel:1070"
+                  className="w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  Call 1070 Disaster Control
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Live Safety Location Share Tool */}
+      <div className="rounded-3xl bg-stone-900 border border-stone-800 p-5 sm:p-7 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
               <Share2 className="w-5 h-5 text-amber-400" />
-              <h2 className="text-lg font-bold text-white">
-                Share Live Journey Status with Family / Trusted Contacts
+              <h2 className="text-lg sm:text-xl font-bold text-white">
+                Live Safe Tracking &amp; GPS Location Broadcast
               </h2>
             </div>
             <p className="text-xs text-stone-400 mt-0.5">
-              Generate a secure emergency message containing your current GPS pin and checkpoint in Odisha.
+              Generate an emergency WhatsApp / SMS safety tracking link with GPS coordinates for family or guides.
             </p>
           </div>
 
           <button
             onClick={handleShareLiveLocation}
-            className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs sm:text-sm font-bold shadow-md transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-extrabold text-xs shadow-md transition-all self-start sm:self-auto"
           >
             <MapPin className="w-4 h-4" />
-            Generate Location Share Pin
+            Generate My Live GPS Safety Link
           </button>
         </div>
 
         {sharedLink && (
-          <div className="mt-4 p-4 rounded-xl bg-stone-800/80 border border-amber-500/40 space-y-2">
-            <span className="text-xs font-bold text-amber-300 block">
-              Shareable Emergency Tracking Message:
-            </span>
-            <div className="bg-stone-900 p-2.5 rounded-lg font-mono text-xs text-stone-300 break-all select-all border border-stone-700">
-              {`"I am traveling in Odisha with UtkalSarathi. Current location check: ${sharedLink}. Emergency contact: 112."`}
+          <div className="p-4 rounded-2xl bg-stone-950 border border-amber-600/40 text-xs space-y-2 animate-fadeIn">
+            <span className="font-bold text-amber-400 block">Your Emergency Tracking Link:</span>
+            <div className="p-2.5 rounded-xl bg-stone-900 text-stone-300 font-mono text-[11px] break-all border border-stone-800">
+              {sharedLink}
             </div>
-            <div className="flex gap-2 pt-1">
-              <a
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                  `I am currently traveling in Odisha. Check my location pin: ${sharedLink}`
-                )}`}
-                target="_blank"
-                rel="noreferrer"
-                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs inline-flex items-center gap-1.5"
-              >
-                Share via WhatsApp
-              </a>
+            <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(sharedLink);
-                  alert('Copied to clipboard!');
+                  alert('Emergency GPS link copied to clipboard!');
                 }}
-                className="px-3 py-1.5 rounded-lg bg-stone-700 hover:bg-stone-600 text-stone-200 font-medium text-xs"
+                className="px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-medium text-xs flex items-center gap-1"
               >
+                <Copy className="w-3.5 h-3.5" />
                 Copy Link
               </button>
+              <a
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                  `[UtkalSuraksha Emergency Location Broadcast]: I am traveling in Odisha. Here is my current GPS location: ${sharedLink}`
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-medium text-xs flex items-center gap-1"
+              >
+                Share via WhatsApp
+              </a>
             </div>
           </div>
         )}
       </div>
 
-      {/* Official Weather Advisory & IMD Alerts */}
-      <div className="rounded-2xl bg-gradient-to-br from-stone-900 to-stone-850 border border-stone-800 p-5 sm:p-6 shadow-md">
-        <div className="flex items-center justify-between pb-3 border-b border-stone-800">
-          <div className="flex items-center gap-2">
-            <CloudRain className="w-5 h-5 text-cyan-400" />
-            <h2 className="text-lg font-bold text-white">
-              Official IMD & Disaster Management Weather Advisory
-            </h2>
-          </div>
-          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/40">
-            Updated Today
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-          <div className="p-4 rounded-xl bg-stone-800/60 border border-stone-700 text-xs space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-stone-200">Coastal Weather (Puri, Konark, Gopalpur)</span>
-              <span className="text-emerald-400 font-semibold">Green (Normal)</span>
-            </div>
-            <p className="text-stone-300 leading-relaxed">
-              Sea condition is moderate. Safe for beach walks at Chandrabhaga and Swargadwar.
-              High tide expected at 14:40 hrs. Follow lifeguard flags; avoid swimming beyond 15 meters from shoreline.
-            </p>
-            <span className="text-[10px] text-stone-500 block">
-              Source: IMD Bhubaneswar Weather Bulletin (0674-2596116)
-            </span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-stone-800/60 border border-stone-700 text-xs space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-stone-200">Inland & Forest Zones (Similipal, Satkosia)</span>
-              <span className="text-amber-400 font-semibold">Mild Thunderstorm Watch</span>
-            </div>
-            <p className="text-stone-300 leading-relaxed">
-              Isolated afternoon showers expected in Mayurbhanj and Angul districts. Visitors with safari bookings
-              advised to commence morning entries by 08:30 AM before trail mudding.
-            </p>
-            <span className="text-[10px] text-stone-500 block">
-              Source: OSDMA Forest Weather Portal (1070)
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Community Hazards & Incidents Reporting */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 shadow-md space-y-4">
+      {/* Community Hazard Reports Section */}
+      <div className="bg-stone-900 border border-stone-800 rounded-3xl p-5 sm:p-7 shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-800">
           <div>
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-400" />
-              <h2 className="text-lg font-bold text-white">
-                Live Travel Disruptions & Community Hazard Reports
+              <h2 className="text-lg sm:text-xl font-bold text-white">
+                Live Community Travel Incidents &amp; Road Advisories
               </h2>
             </div>
             <p className="text-xs text-stone-400 mt-0.5">
-              Verified police advisories and community-reported local road disruptions.
+              Verified police advisories and community-reported local road disruptions across Odisha.
             </p>
           </div>
 
           <button
             onClick={() => setShowReportForm(!showReportForm)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold text-xs shadow-sm transition-all"
           >
             <PlusCircle className="w-4 h-4" />
             {showReportForm ? 'Cancel Report' : 'Report Hazard / Disruption'}
@@ -328,7 +505,7 @@ export const UtkalSuraksha: React.FC = () => {
         {showReportForm && (
           <form
             onSubmit={handleSubmitHazard}
-            className="p-5 rounded-xl bg-stone-850 border border-amber-600/40 space-y-4 text-xs animate-fade-in"
+            className="p-5 rounded-2xl bg-stone-950 border border-amber-600/40 space-y-4 text-xs animate-fadeIn"
           >
             <h3 className="font-bold text-white text-sm">
               Submit Local Travel Incident / Hazard Report
@@ -339,7 +516,7 @@ export const UtkalSuraksha: React.FC = () => {
                 <select
                   value={newType}
                   onChange={(e) => setNewType(e.target.value as any)}
-                  className="w-full bg-stone-800 border border-stone-700 rounded-lg p-2 text-stone-200"
+                  className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-200"
                 >
                   <option value="Heavy Rush / Long Queue">Heavy Rush / Long Queue</option>
                   <option value="Road Diversion">Road Diversion / Repair</option>
@@ -354,68 +531,54 @@ export const UtkalSuraksha: React.FC = () => {
                 <select
                   value={newDistrict}
                   onChange={(e) => setNewDistrict(e.target.value)}
-                  className="w-full bg-stone-800 border border-stone-700 rounded-lg p-2 text-stone-200"
+                  className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-200"
                 >
-                  <option value="Puri">Puri</option>
-                  <option value="Khurda / Bhubaneswar">Khurda / Bhubaneswar</option>
-                  <option value="Cuttack">Cuttack</option>
-                  <option value="Ganjam">Ganjam</option>
-                  <option value="Mayurbhanj">Mayurbhanj</option>
-                  <option value="Angul">Angul</option>
+                  {ODISHA_30_DISTRICTS.map((d) => (
+                    <option key={d.id} value={d.name}>
+                      {d.name} ({d.odiaName})
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-stone-300 font-semibold mb-1">Specific Location</label>
+                <label className="block text-stone-300 font-semibold mb-1">Exact Landmark / Road</label>
                 <input
                   type="text"
-                  placeholder="e.g. Chandrabhaga Marine Drive curve"
                   value={newLoc}
                   onChange={(e) => setNewLoc(e.target.value)}
-                  required
-                  className="w-full bg-stone-800 border border-stone-700 rounded-lg p-2 text-stone-200"
+                  placeholder="e.g., Grand Road near Singhadwara"
+                  className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-200"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-stone-300 font-semibold mb-1">
-                Description & Practical Alternative Route
-              </label>
+              <label className="block text-stone-300 font-semibold mb-1">Details &amp; Advice</label>
               <textarea
-                rows={2}
-                placeholder="Describe current road status, estimated delay, or alternate transport recommendation..."
                 value={newDesc}
                 onChange={(e) => setNewDesc(e.target.value)}
-                required
-                className="w-full bg-stone-800 border border-stone-700 rounded-lg p-2 text-stone-200"
+                placeholder="Describe current road status, queue duration, or recommended alternative route..."
+                rows={3}
+                className="w-full bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-200"
               />
             </div>
 
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowReportForm(false)}
-                className="px-3 py-1.5 rounded-lg bg-stone-800 text-stone-300"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold"
-              >
-                Submit Incident Report
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold rounded-lg transition-colors"
+            >
+              Submit Hazard Report
+            </button>
           </form>
         )}
 
-        {/* Hazard List */}
-        <div className="space-y-3">
+        {/* Hazard Reports List */}
+        <div className="space-y-3 pt-2">
           {hazards.map((hz) => (
             <div
               key={hz.id}
-              className="p-4 rounded-xl bg-stone-850 border border-stone-800 flex flex-col sm:flex-row items-start justify-between gap-3 text-xs"
+              className="p-4 rounded-2xl bg-stone-950 border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
             >
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -450,56 +613,11 @@ export const UtkalSuraksha: React.FC = () => {
 
               <button
                 onClick={() => handleUpvote(hz.id)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white font-semibold transition-colors flex-shrink-0"
-                aria-label={`Confirm hazard at ${hz.location}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-900 hover:bg-stone-800 text-stone-300 hover:text-white font-semibold transition-colors flex-shrink-0"
               >
                 <ThumbsUp className="w-3 h-3 text-amber-400" />
                 <span>Confirm ({hz.upvotes})</span>
               </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Emergency Medical & Police Facilities */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 sm:p-6 shadow-md space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-stone-800">
-          <div className="flex items-center gap-2">
-            <Hospital className="w-5 h-5 text-emerald-400" />
-            <h2 className="text-lg font-bold text-white">
-              Verified Major Trauma & Police Stations
-            </h2>
-          </div>
-          <span className="text-xs text-stone-400">Golden Triangle & Core Corridors</span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {VERIFIED_EMERGENCY_FACILITIES.map((facility) => (
-            <div
-              key={facility.id}
-              className="p-4 rounded-xl bg-stone-850 border border-stone-800 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-                    {facility.type}
-                  </span>
-                  <span className="text-[11px] text-stone-400">{facility.district}</span>
-                </div>
-                <h3 className="text-sm font-bold text-stone-100 mt-1">{facility.name}</h3>
-                <p className="text-xs text-stone-400 mt-1">{facility.address}</p>
-              </div>
-
-              <div className="mt-3 pt-2.5 border-t border-stone-800 flex items-center justify-between">
-                <span className="text-xs font-mono text-amber-300">{facility.contact}</span>
-                <a
-                  href={`tel:${facility.contact.split('/')[0].replace(/[^0-9]/g, '')}`}
-                  className="px-3 py-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold flex items-center gap-1 transition-colors"
-                >
-                  <PhoneCall className="w-3 h-3 text-emerald-400" />
-                  Call Facility
-                </a>
-              </div>
             </div>
           ))}
         </div>

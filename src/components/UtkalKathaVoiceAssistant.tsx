@@ -38,6 +38,7 @@ interface AssistantMessage {
   timestamp: string;
   source?: string;
   isPlayingVoice?: boolean;
+  isLive?: boolean;
 }
 
 export const UtkalKathaVoiceAssistant: React.FC<UtkalKathaVoiceAssistantProps> = ({
@@ -315,19 +316,36 @@ export const UtkalKathaVoiceAssistant: React.FC<UtkalKathaVoiceAssistantProps> =
 
     try {
       const langLabel = selectedLang === 'or' ? 'Odia' : selectedLang === 'hi' ? 'Hindi' : 'English';
-      const promptWithGrounding = `Monument Context: ${selectedStory.monument} (${selectedStory.location}, ${selectedStory.period}).
-Key Historical Figures: ${selectedStory.keyHistoricalFigures?.join(', ') || 'N/A'}.
-Inscriptions & Sources: ${selectedStory.inscriptionsAndManuscripts || 'ASI Archives'}.
-Documented History: ${selectedStory.documentedHistory.slice(0, 500)}.
-Question: "${text}".
-Please reply in ${langLabel} speaking as ${voiceProfile.narratorName[selectedLang] || voiceProfile.narratorName.en} (${voiceProfile.voicePersonaTitle[selectedLang] || voiceProfile.voicePersonaTitle.en}), keeping the answer culturally authentic, accurate, and concise.`;
 
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: promptWithGrounding,
+          message: text,
           language: langLabel,
+          isUtkalKatha: true,
+          runningStory: {
+            id: selectedStory.id,
+            monument: selectedStory.monument,
+            location: selectedStory.location,
+            district: selectedStory.district,
+            period: selectedStory.period,
+            narrator: selectedStory.narrator,
+            narratorName: voiceProfile.narratorName[selectedLang] || voiceProfile.narratorName.en,
+            voicePersonaTitle: voiceProfile.voicePersonaTitle[selectedLang] || voiceProfile.voicePersonaTitle.en,
+            documentedHistory: selectedStory.documentedHistory,
+            legendAndFolklore: selectedStory.legendAndFolklore,
+            architecturalHighlights: selectedStory.architecturalHighlights,
+            inscriptionsAndManuscripts: selectedStory.inscriptionsAndManuscripts,
+            historicalSources: selectedStory.historicalSources,
+            keyHistoricalFigures: selectedStory.keyHistoricalFigures,
+            audioTranscript:
+              selectedLang === 'or'
+                ? selectedStory.audioTranscriptOr
+                : selectedLang === 'hi'
+                ? selectedStory.audioTranscriptHi
+                : selectedStory.audioTranscriptEn,
+          },
         }),
       });
 
@@ -335,17 +353,18 @@ Please reply in ${langLabel} speaking as ${voiceProfile.narratorName[selectedLan
       const replyText =
         data.reply ||
         (selectedLang === 'or'
-          ? `ଜୟ ଜଗନ୍ନାଥ! ${selectedStory.monument} ସମ୍ପର୍କରେ ଏହି ପ୍ରଶ୍ନଟି ଅତ୍ୟନ୍ତ ଗୁରୁତ୍ୱପୂର୍ଣ୍ଣ। ଏହାର ଇତିହାସ ଏବଂ ଶିଳ୍ପକଳା ଓଡ଼ିଶାର ଗୌରବ।`
+          ? `${selectedStory.monument} ର ଐତିହାସିକ ତଥ୍ୟ: ${selectedStory.documentedHistory.slice(0, 360)}`
           : selectedLang === 'hi'
-          ? `जय जगन्नाथ! ${selectedStory.monument} के संदर्भ में यह ऐतिहासिक तथ्य अत्यंत महत्वपूर्ण है।`
-          : `Greetings! Regarding ${selectedStory.monument}, the historical epigraphs confirm this significance.`);
+          ? `${selectedStory.monument} के ऐतिहासिक अभिलेखों के अनुसार: ${selectedStory.documentedHistory.slice(0, 360)}`
+          : `Regarding ${selectedStory.monument}: ${selectedStory.documentedHistory.slice(0, 360)}`);
 
       const assistantReply: AssistantMessage = {
         id: `a-${Date.now()}`,
         sender: 'assistant',
         text: replyText,
-        source: data.source || 'Utkal Historical Epigraphy Grounding',
+        source: data.source || `Live Voice Engine • ${selectedStory.monument}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isLive: true,
       };
 
       setMessages((prev) => [...prev, assistantReply]);
@@ -362,7 +381,7 @@ Please reply in ${langLabel} speaking as ${voiceProfile.narratorName[selectedLan
             : selectedLang === 'hi'
             ? `${selectedStory.monument} के ऐतिहासिक अभिलेखों के अनुसार: ${selectedStory.documentedHistory.slice(0, 320)}...`
             : `According to historical records for ${selectedStory.monument}: ${selectedStory.documentedHistory.slice(0, 320)}...`,
-        source: 'Utkal Historical Archive',
+        source: `Utkal Historical Archive • ${selectedStory.monument}`,
         timestamp: 'Just now',
       };
       setMessages((prev) => [...prev, fallbackReply]);
@@ -460,9 +479,14 @@ Please reply in ${langLabel} speaking as ${voiceProfile.narratorName[selectedLan
 
       {/* Monument-Specific Quick Questions Chips */}
       <div className="mt-4">
-        <div className="text-[11px] font-bold uppercase tracking-wider text-stone-400 mb-2 flex items-center gap-1.5">
-          <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-          <span>Ask {voiceProfile.placeName[selectedLang] || voiceProfile.placeName.en} (Click Any Question):</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+            <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
+            <span>Ask About Running Story ({voiceProfile.placeName[selectedLang] || voiceProfile.placeName.en}):</span>
+          </div>
+          <span className="text-[10px] text-amber-400/90 bg-stone-950/90 px-2 py-0.5 rounded-full border border-amber-500/30 font-medium">
+            🎯 Answers Focused Exclusively On This Story
+          </span>
         </div>
         <div className="flex flex-wrap gap-2">
           {voiceProfile.curatedQuestions.map((q, idx) => {
@@ -505,6 +529,12 @@ Please reply in ${langLabel} speaking as ${voiceProfile.narratorName[selectedLan
                     <span className="flex items-center gap-1.5">
                       <Bot className="w-3.5 h-3.5" />
                       {voiceProfile.narratorName[selectedLang] || voiceProfile.narratorName.en}
+                      {m.isLive && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-bold border border-emerald-500/40">
+                          <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
+                          Live Answer
+                        </span>
+                      )}
                     </span>
                     <span className="text-stone-500 text-[10px]">{m.timestamp}</span>
                   </div>
@@ -570,10 +600,14 @@ Please reply in ${langLabel} speaking as ${voiceProfile.narratorName[selectedLan
         })}
 
         {isLoading && (
-          <div className="flex items-center gap-2 text-xs text-amber-400 bg-stone-950 border border-stone-800 rounded-2xl px-4 py-3 w-fit animate-pulse">
-            <Bot className="w-4 h-4 animate-spin" />
+          <div className="flex items-center gap-2 text-xs text-amber-300 bg-stone-950 border border-amber-500/40 rounded-2xl px-4 py-3 w-fit animate-pulse shadow-lg">
+            <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
             <span>
-              {voiceProfile.narratorName[selectedLang] || voiceProfile.narratorName.en} is consulting historical inscriptions...
+              {selectedLang === 'or'
+                ? `${voiceProfile.narratorName.or} ପ୍ରତ୍ୟକ୍ଷ ଉତ୍ତର ପ୍ରସ୍ତୁତ କରୁଛନ୍ତି...`
+                : selectedLang === 'hi'
+                ? `${voiceProfile.narratorName.hi} सीधा उत्तर तैयार कर रहे हैं...`
+                : `${voiceProfile.narratorName.en} is preparing a live answer to your question...`}
             </span>
           </div>
         )}

@@ -55,6 +55,8 @@ export interface DistrictInfo {
   description: string;
 }
 
+export type OdishaDistrict = DistrictInfo;
+
 export const ODISHA_30_DISTRICTS: DistrictInfo[] = [
   {
     id: 'angul',

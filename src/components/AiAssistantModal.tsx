@@ -1214,7 +1214,7 @@ export const AiAssistantModal: React.FC<AiAssistantModalProps> = ({
                   <li><strong>Dress Code:</strong> Clean traditional Indian attire (Dhoti-Kurta, Saree, Salwar). Non-leather footwear only.</li>
                   <li><strong>Prohibited Items:</strong> Mobile phones, cameras, smartwatches, leather belts/wallets are strictly banned past the Singhadwara.</li>
                   <li><strong>Mahaprasad (Abhada):</strong> Available daily after Bhoga (around 1:30 PM - 2:00 PM) at Ananda Bazaar inside the complex.</li>
-                  <li><strong>Panda Assistance:</strong> Use authorized Temple Information Desks rather than unverified intermediaries.</li>
+                  <li><strong>Temple Priest &amp; Sevayat Guidance:</strong> Use authorized Temple Information Desks rather than unverified intermediaries.</li>
                 </ul>
                 <button
                   onClick={() => handleSendPrompt('Tell me about the Mahaprasad Rosaghara tradition and opening times in Puri Jagannath Temple')}
