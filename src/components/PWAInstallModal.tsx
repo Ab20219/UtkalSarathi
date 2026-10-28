@@ -18,6 +18,7 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
     return 'mac';
   });
   const [installSuccess, setInstallSuccess] = useState(false);
+  const [copiedApkLink, setCopiedApkLink] = useState(false);
 
   if (!isOpen) return null;
 
@@ -150,8 +151,71 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({ isOpen, onClos
                   <Smartphone className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="font-semibold text-white">Android Phone App (PWA & TWA)</h4>
-                  <p className="text-xs text-stone-400">Full offline caching, push notifications, and native fullscreen layout</p>
+                  <h4 className="font-semibold text-white">Android Phone App (Native APK & PWA)</h4>
+                  <p className="text-xs text-stone-400">Cryptographically signed release package, full offline caching, and native fullscreen layout</p>
+                </div>
+              </div>
+
+              {/* Direct APK Download Card */}
+              <div className="p-4 bg-gradient-to-r from-emerald-950/80 via-stone-900 to-emerald-950/80 border border-emerald-500/40 rounded-xl shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/40 shrink-0">
+                      <Download className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-white text-sm">Download Native Android APK (Base.apk)</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          v2.4.0 Release Signed
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-300 mt-0.5">
+                        Cryptographically signed APK package (<strong className="text-amber-300">Base.apk</strong>) — ready to download, install, and share across any Android device.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href="/Base.apk"
+                      download="Base.apk"
+                      className="flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-md transition transform active:scale-95"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download Base.apk</span>
+                    </a>
+                    <button
+                      onClick={() => {
+                        const url = window.location.origin + '/Base.apk';
+                        if (navigator.share) {
+                          navigator.share({
+                            title: 'UtkalSarathi Android APK (Base.apk)',
+                            text: 'Download and install UtkalSarathi — AI Smart Tourism & Safety for Odisha (Base.apk)',
+                            url,
+                          }).catch(() => {});
+                        } else {
+                          navigator.clipboard.writeText(url).then(() => {
+                            setCopiedApkLink(true);
+                            setTimeout(() => setCopiedApkLink(false), 2500);
+                          });
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded-xl border border-stone-700 transition"
+                      title="Share Base.apk link"
+                    >
+                      {copiedApkLink ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400 font-bold">Link Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Share APK</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 

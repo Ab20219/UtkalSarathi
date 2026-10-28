@@ -206,7 +206,7 @@ export const UtkalKathaVoiceAssistant: React.FC<UtkalKathaVoiceAssistantProps> =
         body: JSON.stringify({
           text: cleanText.slice(0, 750),
           lang: selectedLang,
-          persona: 'royal',
+          persona: voiceProfile.id,
         }),
       });
 
@@ -247,8 +247,28 @@ export const UtkalKathaVoiceAssistant: React.FC<UtkalKathaVoiceAssistantProps> =
 
     try {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      (window as any)._activeAssistantUtterance = utterance;
+
+      // Split text into short, natural sentence segments (~180 chars) to prevent Chrome timeouts
+      const rawSentences = text
+        .replace(/([.!?।\n])\s+/g, '$1\n')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const chunks: string[] = [];
+      let buffer = '';
+      for (const s of rawSentences) {
+        if (!buffer) {
+          buffer = s;
+        } else if (buffer.length + s.length + 1 <= 200) {
+          buffer += ' ' + s;
+        } else {
+          chunks.push(buffer);
+          buffer = s;
+        }
+      }
+      if (buffer) chunks.push(buffer);
+      const segments = chunks.length > 0 ? chunks : [text.slice(0, 200)];
 
       const voices = window.speechSynthesis.getVoices();
       let matchedVoice = null;
@@ -262,34 +282,49 @@ export const UtkalKathaVoiceAssistant: React.FC<UtkalKathaVoiceAssistantProps> =
             v.lang === 'hi-IN' ||
             v.lang === 'en-IN'
         );
-        utterance.lang = matchedVoice?.lang || 'hi-IN';
       } else if (selectedLang === 'hi') {
         matchedVoice = voices.find((v) => v.lang.startsWith('hi') || v.lang.includes('IN'));
-        utterance.lang = matchedVoice?.lang || 'hi-IN';
       } else {
         matchedVoice = voices.find((v) => v.lang === 'en-IN' || v.lang.startsWith('en'));
-        utterance.lang = matchedVoice?.lang || 'en-IN';
       }
 
-      if (matchedVoice) {
-        utterance.voice = matchedVoice;
-      }
+      let currentIdx = 0;
+      const playNext = () => {
+        if (currentIdx >= segments.length) {
+          setActiveSpeakingMsgId(null);
+          setVoiceNotice('');
+          return;
+        }
 
-      // Monument-specific voice attributes
-      utterance.pitch = voiceProfile.basePitch;
-      utterance.rate = voiceProfile.rateMultiplier;
+        const utterance = new SpeechSynthesisUtterance(segments[currentIdx]);
+        (window as any)._activeAssistantUtterance = utterance;
 
-      utterance.onend = () => {
-        setActiveSpeakingMsgId(null);
-        setVoiceNotice('');
+        if (matchedVoice) {
+          utterance.voice = matchedVoice;
+          utterance.lang = matchedVoice.lang;
+        } else {
+          utterance.lang = selectedLang === 'or' ? 'hi-IN' : selectedLang === 'hi' ? 'hi-IN' : 'en-IN';
+        }
+
+        utterance.pitch = voiceProfile.basePitch;
+        utterance.rate = voiceProfile.rateMultiplier;
+
+        utterance.onend = () => {
+          currentIdx++;
+          playNext();
+        };
+
+        utterance.onerror = (e) => {
+          if (e.error === 'interrupted' || e.error === 'canceled') return;
+          console.warn('Utterance chunk warning, continuing:', e.error);
+          currentIdx++;
+          playNext();
+        };
+
+        window.speechSynthesis.speak(utterance);
       };
 
-      utterance.onerror = () => {
-        setActiveSpeakingMsgId(null);
-        setVoiceNotice('');
-      };
-
-      window.speechSynthesis.speak(utterance);
+      playNext();
     } catch (e) {
       console.warn('Speech error:', e);
       setActiveSpeakingMsgId(null);

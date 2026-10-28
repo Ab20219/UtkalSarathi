@@ -1,8 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { AUDIO_GUIDE_STORIES, CULTURAL_EVENTS } from '../data/mockData';
+import { CULTURAL_EVENTS } from '../data/mockData';
+import { ODISHA_HISTORICAL_STORIES } from '../data/odishaHistoricalStories';
+import { ODISHA_CHRONICLES_VOLUME_TWO } from '../data/odishaHistoricalChroniclesVolume';
 import { AudioGuideStory } from '../types';
 import { getMonumentVoiceProfile, MonumentVoiceProfile } from '../data/monumentVoiceProfiles';
 import { UtkalKathaVoiceAssistant } from './UtkalKathaVoiceAssistant';
+
+const AUDIO_GUIDE_STORIES: AudioGuideStory[] = [
+  ...ODISHA_HISTORICAL_STORIES,
+  ...ODISHA_CHRONICLES_VOLUME_TWO,
+];
 import {
   Volume2,
   VolumeX,
@@ -46,6 +53,38 @@ interface AudioStoriesProps {
 
 type VoicePersona = 'royal' | 'temple' | 'historian';
 
+/**
+ * Splits long historical narratives into sentence-sized segments (~150-220 chars)
+ * to prevent browser SpeechSynthesisUtterance buffer overruns and dropouts.
+ */
+function splitStoryIntoSegments(text: string): string[] {
+  if (!text) return [];
+  const rawSentences = text
+    .replace(/([.!?।\n])\s+/g, '$1\n')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let buffer = '';
+
+  for (const s of rawSentences) {
+    if (!buffer) {
+      buffer = s;
+    } else if (buffer.length + s.length + 1 <= 200) {
+      buffer += ' ' + s;
+    } else {
+      chunks.push(buffer);
+      buffer = s;
+    }
+  }
+  if (buffer) {
+    chunks.push(buffer);
+  }
+
+  return chunks.length > 0 ? chunks : [text.slice(0, 200)];
+}
+
 export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, initialStoryId }) => {
   const initialStory = useMemo(() => {
     if (initialStoryId) {
@@ -66,7 +105,10 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
   const [selectedRegion, setSelectedRegion] = useState<string>('All');
   const [sourceCategoryFilter, setSourceCategoryFilter] = useState<string>('All');
 
-  // Playback & Timing state
+  // Playback & Timing state machine
+  const [playbackState, setPlaybackState] = useState<
+    'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'error' | 'completed' | 'cancelled'
+  >('idle');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isStoryOver, setIsStoryOver] = useState<boolean>(false);
@@ -94,6 +136,9 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
   const ambientOscillatorsRef = useRef<OscillatorNode[]>([]);
   const htmlAudioRef = useRef<HTMLAudioElement | null>(null);
   const textOffsetCharRef = useRef<number>(0);
+  const activeSegmentsRef = useRef<string[]>([]);
+  const currentSegmentIndexRef = useRef<number>(0);
+  const isSpeechCancelledRef = useRef<boolean>(false);
 
   // Strict duration: Calibrated to 8 mins (480 seconds) per story
   const exactDurationMinutes = useMemo(() => {
@@ -104,11 +149,12 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     return exactDurationMinutes * 60; // 480s for 8 mins
   }, [exactDurationMinutes]);
 
-  // Scrubber percentage strictly bounded between 0% and 100%
+  // Scrubber percentage strictly bounded between 0% and 100% (snaps to 100% when story is over)
   const progressPercent = useMemo(() => {
+    if (isStoryOver || playbackState === 'completed') return 100;
     if (totalDurationSec <= 0) return 0;
     return Math.min(100, Math.max(0, (currentTimeSec / totalDurationSec) * 100));
-  }, [currentTimeSec, totalDurationSec]);
+  }, [currentTimeSec, totalDurationSec, isStoryOver, playbackState]);
 
   // Clean Web Audio Drone generator using monument-specific root chord
   const startAmbientSound = () => {
@@ -337,44 +383,41 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     clearInterval(timerRef.current);
     clearInterval(keepAliveTimerRef.current);
     setIsAiLoading(false);
+    setPlaybackState('cancelled');
   }, []);
 
-  // Story strict ticker function (strictly ends at duration limit)
-  const startStoryTicker = useCallback((durationLimitSec?: number) => {
-    const maxSec = durationLimitSec || totalDurationSec;
+  // Natural audio progress ticker (strictly synchronizes with actual narration, without premature timer cutoffs)
+  const startStoryTicker = useCallback((expectedTotalSec?: number) => {
     clearInterval(timerRef.current);
-    setIsStoryOver(false);
     timerRef.current = setInterval(() => {
       setCurrentTimeSec((prev) => {
-        const next = prev + 1;
-        if (next >= maxSec) {
-          clearInterval(timerRef.current);
-          setIsPlaying(false);
-          setIsPaused(false);
-          setIsStoryOver(true);
-          stopAmbientSound();
-          if (htmlAudioRef.current) htmlAudioRef.current.pause();
-          setVoiceStatusNotice(`Story Over — 8-min historical narration of ${selectedStory.monument} completed.`);
-          return maxSec;
+        const ceiling = expectedTotalSec || totalDurationSec;
+        if (prev < ceiling) {
+          return prev + 1;
         }
-        return next;
+        return prev;
       });
     }, 1000);
-  }, [totalDurationSec, selectedStory.monument]);
+  }, [totalDurationSec]);
 
-  // Client-Side Web Speech API Fallback with Monument-Specific Voice Characteristics
+  // Segmented Client-Side Web Speech API Player with Monument Voice Profiles
   const fallbackBrowserSpeech = useCallback((
-    charOffset: number,
     storyToPlay: AudioGuideStory,
     langToUse: 'en' | 'or' | 'hi',
-    totalSec: number
+    totalSec: number,
+    startSegmentIndex: number = 0
   ) => {
     setActiveAudioSourceType('browser_tts');
     const fullText = getTranscript(storyToPlay, langToUse);
     const monumentVoice = getMonumentVoiceProfile(storyToPlay.id);
+    const segments = splitStoryIntoSegments(fullText);
+    activeSegmentsRef.current = segments;
+    currentSegmentIndexRef.current = startSegmentIndex;
+    isSpeechCancelledRef.current = false;
 
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      setVoiceStatusNotice('Playing sacred acoustic soundscape with synced text.');
+      setVoiceStatusNotice('Playing sacred acoustic soundscape with synced historical text.');
+      setPlaybackState('playing');
       setIsPlaying(true);
       setIsPaused(false);
       setIsStoryOver(false);
@@ -382,100 +425,99 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
       return;
     }
 
-    try {
-      window.speechSynthesis.cancel();
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
+    const voices = window.speechSynthesis.getVoices();
+    let matchedVoice: SpeechSynthesisVoice | null = null;
 
-      const textToSpeak = fullText.slice(charOffset) || fullText;
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      (window as any)._activeUtterance = utterance;
+    if (langToUse === 'or') {
+      matchedVoice = voices.find(
+        (v) =>
+          v.lang.toLowerCase().startsWith('or') ||
+          v.name.toLowerCase().includes('odia') ||
+          v.name.toLowerCase().includes('oriya') ||
+          v.lang === 'hi-IN' ||
+          v.lang === 'en-IN'
+      ) || null;
+    } else if (langToUse === 'hi') {
+      matchedVoice = voices.find((v) => v.lang.startsWith('hi') || v.lang.includes('IN')) || null;
+    } else {
+      matchedVoice = voices.find((v) => v.lang === 'en-IN' || v.lang.startsWith('en')) || null;
+    }
 
-      const voices = window.speechSynthesis.getVoices();
-      let matchedVoice = null;
+    const playNextSegment = (idx: number) => {
+      if (isSpeechCancelledRef.current) return;
 
-      if (langToUse === 'or') {
-        matchedVoice = voices.find(
-          (v) =>
-            v.lang.toLowerCase().startsWith('or') ||
-            v.name.toLowerCase().includes('odia') ||
-            v.name.toLowerCase().includes('oriya') ||
-            v.lang === 'hi-IN' ||
-            v.lang === 'en-IN'
-        );
-        utterance.lang = matchedVoice?.lang || 'hi-IN';
-      } else if (langToUse === 'hi') {
-        matchedVoice = voices.find((v) => v.lang.startsWith('hi') || v.lang.includes('IN'));
-        utterance.lang = matchedVoice?.lang || 'hi-IN';
-      } else {
-        matchedVoice = voices.find((v) => v.lang === 'en-IN' || v.lang.startsWith('en'));
-        utterance.lang = matchedVoice?.lang || 'en-IN';
-      }
-
-      if (matchedVoice) {
-        utterance.voice = matchedVoice;
-      }
-
-      // Monument-specific pitch and cadence
-      utterance.rate = playbackSpeed * personaSettings.rateMultiplier * monumentVoice.rateMultiplier;
-      utterance.pitch = pitch * personaSettings.basePitch * monumentVoice.basePitch;
-
-      utterance.onboundary = (e) => {
-        if (e.name === 'word' || e.name === 'sentence') {
-          const absoluteCharIndex = charOffset + e.charIndex;
-          textOffsetCharRef.current = absoluteCharIndex;
-          const ratio = Math.min(1, Math.max(0, absoluteCharIndex / Math.max(1, fullText.length)));
-          const calcSec = Math.round(ratio * totalSec);
-          setCurrentTimeSec(Math.min(totalSec, calcSec));
-        }
-      };
-
-      utterance.onend = () => {
+      if (idx >= segments.length) {
+        setPlaybackState('completed');
         setIsPlaying(false);
         setIsPaused(false);
         setIsStoryOver(true);
         setCurrentTimeSec(totalSec);
         stopAmbientSound();
         clearInterval(timerRef.current);
-        setVoiceStatusNotice(`Story Over — Narration completed in ${monumentVoice.narratorName[langToUse] || monumentVoice.narratorName.en}'s voice.`);
-      };
+        setVoiceStatusNotice(
+          `Story Over — Narration completed in ${monumentVoice.narratorName[langToUse] || monumentVoice.narratorName.en}'s voice.`
+        );
+        return;
+      }
 
-      utterance.onerror = (e) => {
-        if (e.error === 'interrupted' || e.error === 'canceled') return;
-        console.warn('Speech synthesis non-fatal:', e.error);
-      };
+      currentSegmentIndexRef.current = idx;
+      const progressRatio = idx / Math.max(1, segments.length);
+      setCurrentTimeSec(Math.min(totalSec, Math.round(progressRatio * totalSec)));
 
-      window.speechSynthesis.speak(utterance);
-      setVoiceStatusNotice(
-        `Narrating via ${monumentVoice.narratorName[langToUse] || monumentVoice.narratorName.en} (${monumentVoice.voicePersonaTitle[langToUse] || monumentVoice.voicePersonaTitle.en})`
-      );
+      try {
+        window.speechSynthesis.cancel();
+        const textChunk = segments[idx];
+        const utterance = new SpeechSynthesisUtterance(textChunk);
+        (window as any)._activeUtterance = utterance;
 
-      // Keep speech synthesis active in Chrome/Chromium
-      clearInterval(keepAliveTimerRef.current);
-      keepAliveTimerRef.current = setInterval(() => {
-        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
+        if (matchedVoice) {
+          utterance.voice = matchedVoice;
+          utterance.lang = matchedVoice.lang;
         } else {
-          clearInterval(keepAliveTimerRef.current);
+          utterance.lang = langToUse === 'or' ? 'hi-IN' : langToUse === 'hi' ? 'hi-IN' : 'en-IN';
         }
-      }, 10000);
-    } catch (e) {
-      console.warn('Speech error:', e);
-    }
 
+        utterance.rate = playbackSpeed * personaSettings.rateMultiplier * monumentVoice.rateMultiplier;
+        utterance.pitch = pitch * personaSettings.basePitch * monumentVoice.basePitch;
+
+        utterance.onend = () => {
+          if (!isSpeechCancelledRef.current) {
+            playNextSegment(idx + 1);
+          }
+        };
+
+        utterance.onerror = (e) => {
+          if (e.error === 'interrupted' || e.error === 'canceled') return;
+          console.warn('Speech segment notification, advancing to next part:', e.error);
+          if (!isSpeechCancelledRef.current) {
+            playNextSegment(idx + 1);
+          }
+        };
+
+        window.speechSynthesis.speak(utterance);
+        setPlaybackState('playing');
+        setVoiceStatusNotice(
+          `Narrating part ${idx + 1}/${segments.length} via ${monumentVoice.narratorName[langToUse] || monumentVoice.narratorName.en} (${monumentVoice.voicePersonaTitle[langToUse] || monumentVoice.voicePersonaTitle.en})`
+        );
+      } catch (err) {
+        console.warn('Speech synthesis chunk error:', err);
+        playNextSegment(idx + 1);
+      }
+    };
+
+    setPlaybackState('playing');
     setIsPlaying(true);
     setIsPaused(false);
     setIsStoryOver(false);
     startStoryTicker(totalSec);
+    playNextSegment(startSegmentIndex);
   }, [personaSettings, pitch, playbackSpeed, startStoryTicker]);
 
   // Execute full audio playback for a given story and language
   const executeAudioPlayback = useCallback(async (
     storyToPlay: AudioGuideStory,
     langToUse: 'en' | 'or' | 'hi' = selectedLang,
-    charOffset: number = 0
+    startSegmentIndex: number = 0
   ) => {
     // 1. Prime Web Audio context synchronously during user click gesture
     try {
@@ -495,9 +537,8 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     setSelectedStory(storyToPlay);
     setSelectedLang(langToUse);
     setIsStoryOver(false);
+    setPlaybackState('loading');
 
-    const fullText = getTranscript(storyToPlay, langToUse);
-    const textSlice = fullText.slice(charOffset) || fullText;
     const durationMinutes = Math.max(1, Math.round(storyToPlay.durationMinutes || 8));
     const totalSec = durationMinutes * 60;
     const monumentVoice = getMonumentVoiceProfile(storyToPlay.id);
@@ -508,19 +549,20 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     setIsPaused(false);
     startStoryTicker(totalSec);
 
-    // 5. Generate high-definition studio narration via server Gemini TTS
+    // 5. Try high-definition studio narration via server Gemini TTS if available
     setIsAiLoading(true);
     setVoiceStatusNotice(
-      `Generating Studio HD Voice for ${monumentVoice.narratorName[langToUse] || monumentVoice.narratorName.en} (${storyToPlay.monument})...`
+      `Initializing ${monumentVoice.narratorName[langToUse] || monumentVoice.narratorName.en} (${storyToPlay.monument})...`
     );
 
     let studioAudioSuccess = false;
     try {
+      const fullText = getTranscript(storyToPlay, langToUse);
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: textSlice.slice(0, 750),
+          text: fullText.slice(0, 500),
           lang: langToUse,
           persona: monumentVoice.id,
         }),
@@ -534,25 +576,45 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
           audio.playbackRate = playbackSpeed;
           htmlAudioRef.current = audio;
 
+          // Track real audio playback position
+          audio.ontimeupdate = () => {
+            if (audio.currentTime > 0) {
+              const cur = Math.round(audio.currentTime);
+              setCurrentTimeSec(cur);
+            }
+          };
+
+          audio.onwaiting = () => {
+            setPlaybackState('buffering');
+          };
+
+          audio.onplaying = () => {
+            setPlaybackState('playing');
+          };
+
+          // The story finishes STRICTLY when the actual audio segment gets over
           audio.onended = () => {
+            setPlaybackState('completed');
             setIsPlaying(false);
             setIsPaused(false);
             setIsStoryOver(true);
-            setCurrentTimeSec(totalSec);
+            const actualEndSec = audio.duration && !isNaN(audio.duration) ? Math.round(audio.duration) : totalSec;
+            setCurrentTimeSec(actualEndSec);
             stopAmbientSound();
             clearInterval(timerRef.current);
             setVoiceStatusNotice(`Story Over — Completed narration of ${storyToPlay.monument}.`);
           };
 
           audio.onerror = () => {
-            console.warn('Audio element error, falling back to client speech engine');
-            fallbackBrowserSpeech(charOffset, storyToPlay, langToUse, totalSec);
+            setPlaybackState('buffering');
+            fallbackBrowserSpeech(storyToPlay, langToUse, totalSec, startSegmentIndex);
           };
 
           try {
             await audio.play();
             studioAudioSuccess = true;
             setActiveAudioSourceType('ai_hd');
+            setPlaybackState('playing');
             setIsPlaying(true);
             setIsPaused(false);
             setIsAiLoading(false);
@@ -560,18 +622,18 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
               `Streaming Studio HD Voice: ${monumentVoice.narratorName[langToUse] || monumentVoice.narratorName.en} with Sacred Tanpura`
             );
             return;
-          } catch (playErr) {
-            console.warn('Audio play was restricted, falling back to client engine:', playErr);
+          } catch {
+            // Audio play restricted
           }
         }
       }
-    } catch (err) {
-      console.warn('Server TTS fetch failed, switching to client speech engine:', err);
+    } catch {
+      // Proceed to fallback
     }
 
     setIsAiLoading(false);
     if (!studioAudioSuccess) {
-      fallbackBrowserSpeech(charOffset, storyToPlay, langToUse, totalSec);
+      fallbackBrowserSpeech(storyToPlay, langToUse, totalSec, startSegmentIndex);
     }
   }, [selectedLang, stopAllAudio, playbackSpeed, fallbackBrowserSpeech, startStoryTicker]);
 
@@ -584,11 +646,13 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     if (selectedStory.id === story.id) {
       if (isPlaying) {
         // Pause
+        isSpeechCancelledRef.current = true;
         if (htmlAudioRef.current) htmlAudioRef.current.pause();
         if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          window.speechSynthesis.pause();
+          window.speechSynthesis.cancel();
         }
         stopAmbientSound();
+        setPlaybackState('paused');
         setIsPlaying(false);
         setIsPaused(true);
         clearInterval(timerRef.current);
@@ -598,27 +662,32 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
         // Resume
         if (htmlAudioRef.current) {
           htmlAudioRef.current.play().catch(() => {});
-        } else if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
+          startAmbientSound();
+          setPlaybackState('playing');
+          setIsPlaying(true);
+          setIsPaused(false);
+          startStoryTicker();
+          setVoiceStatusNotice(`Resumed narration of ${story.monument}.`);
+          return;
         } else {
-          executeAudioPlayback(story, lang || selectedLang, textOffsetCharRef.current);
+          isSpeechCancelledRef.current = false;
+          startAmbientSound();
+          fallbackBrowserSpeech(story, lang || selectedLang, totalDurationSec, currentSegmentIndexRef.current);
+          setVoiceStatusNotice(`Resumed narration of ${story.monument}.`);
           return;
         }
-        startAmbientSound();
-        setIsPlaying(true);
-        setIsPaused(false);
-        startStoryTicker();
-        setVoiceStatusNotice(`Resumed narration of ${story.monument}.`);
-        return;
       }
     }
 
     // New story selection: run immediately from the beginning
     setCurrentTimeSec(0);
     textOffsetCharRef.current = 0;
+    currentSegmentIndexRef.current = 0;
+    isSpeechCancelledRef.current = false;
     setIsStoryOver(false);
+    setPlaybackState('loading');
     executeAudioPlayback(story, lang || selectedLang, 0);
-  }, [selectedStory.id, isPlaying, isPaused, selectedLang, executeAudioPlayback, startStoryTicker]);
+  }, [selectedStory.id, isPlaying, isPaused, selectedLang, executeAudioPlayback, fallbackBrowserSpeech, startStoryTicker, totalDurationSec]);
 
   const togglePlayback = () => {
     handleSelectAndPlayStory(selectedStory);
@@ -627,6 +696,8 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
   const handleReset = () => {
     setCurrentTimeSec(0);
     textOffsetCharRef.current = 0;
+    currentSegmentIndexRef.current = 0;
+    isSpeechCancelledRef.current = false;
     setIsStoryOver(false);
     executeAudioPlayback(selectedStory, selectedLang, 0);
   };
@@ -635,6 +706,8 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
   const handleReplay = () => {
     setCurrentTimeSec(0);
     textOffsetCharRef.current = 0;
+    currentSegmentIndexRef.current = 0;
+    isSpeechCancelledRef.current = false;
     setIsStoryOver(false);
     executeAudioPlayback(selectedStory, selectedLang, 0);
   };
@@ -671,8 +744,12 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     const targetChar = Math.round((chapterIdx / totalChapters) * fullTranscript.length);
     textOffsetCharRef.current = targetChar;
 
+    const segmentsCount = activeSegmentsRef.current.length || 1;
+    const targetSeg = Math.min(segmentsCount - 1, Math.floor((chapterIdx / totalChapters) * segmentsCount));
+    currentSegmentIndexRef.current = targetSeg;
+
     setVoiceStatusNotice(`Playing Part ${chapterIdx + 1}: ${chapter.title}`);
-    executeAudioPlayback(selectedStory, selectedLang, targetChar);
+    executeAudioPlayback(selectedStory, selectedLang, targetSeg);
   }, [selectedStory, selectedLang, totalDurationSec, executeAudioPlayback]);
 
   const handleSkip = (seconds: number) => {
@@ -683,8 +760,12 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     setCurrentTimeSec(newTime);
     textOffsetCharRef.current = targetChar;
 
+    const segmentsCount = activeSegmentsRef.current.length || 1;
+    const targetSeg = Math.min(segmentsCount - 1, Math.floor(ratio * segmentsCount));
+    currentSegmentIndexRef.current = targetSeg;
+
     if (isPlaying) {
-      executeAudioPlayback(selectedStory, selectedLang, targetChar);
+      executeAudioPlayback(selectedStory, selectedLang, targetSeg);
     }
   };
 
@@ -698,8 +779,12 @@ export const AudioStories: React.FC<AudioStoriesProps> = ({ onOpenAssistant, ini
     setCurrentTimeSec(newTime);
     textOffsetCharRef.current = targetChar;
 
+    const segmentsCount = activeSegmentsRef.current.length || 1;
+    const targetSeg = Math.min(segmentsCount - 1, Math.floor(ratio * segmentsCount));
+    currentSegmentIndexRef.current = targetSeg;
+
     if (isPlaying) {
-      executeAudioPlayback(selectedStory, selectedLang, targetChar);
+      executeAudioPlayback(selectedStory, selectedLang, targetSeg);
     }
   };
 
@@ -854,7 +939,7 @@ ${currentTranscript}
 
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <span className="px-2.5 py-1 rounded-full bg-stone-800/80 border border-stone-700 text-stone-300 flex items-center gap-1.5">
-              <CheckCircle2 className="w-3 h-3 text-emerald-400" /> 13 Curated 10-Min Audio Guides
+              <CheckCircle2 className="w-3 h-3 text-emerald-400" /> {AUDIO_GUIDE_STORIES.length} Curated Chronicles (120,000+ Words)
             </span>
             <span className="px-2.5 py-1 rounded-full bg-stone-800/80 border border-stone-700 text-stone-300 flex items-center gap-1.5">
               <CheckCircle2 className="w-3 h-3 text-amber-400" /> Multi-Source Primary Citations

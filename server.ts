@@ -181,7 +181,7 @@ app.get('/api/districts/:id', (req: Request, res: Response) => {
 /**
  * POST /api/tts
  * Studio Audio Text-to-Speech using Gemini 3.8 Flash Lite TTS
- * Returns base64 audio/wav for universal, 100% reliable browser playback
+ * Returns base64 audio/wav for universal browser playback, with graceful fallback flag
  */
 app.post('/api/tts', async (req: Request, res: Response) => {
   try {
@@ -192,33 +192,91 @@ app.post('/api/tts', async (req: Request, res: Response) => {
     }
 
     if (!ai) {
-      res.status(503).json({ error: 'Gemini AI not initialized on server' });
-      return;
-    }
-
-    // Limit chunk to avoid payload timeouts; read up to 800 characters at a time
-    const cleanText = text.slice(0, 800).trim();
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash-lite-tts',
-      contents: cleanText,
-    });
-
-    const candidate = response.candidates?.[0];
-    const part = candidate?.content?.parts?.[0];
-
-    if (part?.inlineData?.data) {
       res.json({
-        audioBase64: part.inlineData.data,
-        mimeType: part.inlineData.mimeType || 'audio/wav',
+        audioBase64: null,
+        fallback: true,
+        message: 'Gemini AI not configured on server, activating client speech engine.',
       });
       return;
     }
 
-    res.status(500).json({ error: 'No audio returned by TTS model' });
+    // Limit chunk to avoid payload timeouts; read up to 600 characters at a time
+    const cleanText = text.slice(0, 600).trim();
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: cleanText,
+                speechMetadata: {
+                  style: 'Solemn, articulate historical chronicle narrator',
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: persona === 'temple' ? 'Kore' : persona === 'royal' ? 'Fenrir' : 'Zephyr' },
+            },
+          },
+        },
+      });
+
+      const candidate = response.candidates?.[0];
+      const part = candidate?.content?.parts?.[0];
+
+      if (part?.inlineData?.data) {
+        res.json({
+          audioBase64: part.inlineData.data,
+          mimeType: part.inlineData.mimeType || 'audio/wav',
+          fallback: false,
+        });
+        return;
+      }
+    } catch (apiError: any) {
+      // Check if this is a quota limit (429 / RESOURCE_EXHAUSTED) or model availability notice
+      const isQuota = apiError?.status === 429 ||
+        apiError?.message?.includes('429') ||
+        apiError?.message?.includes('quota') ||
+        apiError?.message?.includes('RESOURCE_EXHAUSTED');
+
+      if (isQuota) {
+        console.warn('[Server TTS Notice] Gemini TTS free-tier quota reached. Seamlessly delegating to client vocal synthesis.');
+      } else {
+        console.warn('[Server TTS Notice] Gemini TTS service response:', apiError?.message || apiError);
+      }
+
+      // Return a clean 200 with fallback: true so client seamlessly runs segmented regional speech
+      res.json({
+        audioBase64: null,
+        fallback: true,
+        quotaExceeded: isQuota,
+        message: isQuota
+          ? 'Daily free-tier cloud voice quota reached. Seamlessly playing high-fidelity regional narration with temple drone.'
+          : 'Cloud voice temporarily busy. Using local regional vocal synthesis.',
+      });
+      return;
+    }
+
+    res.json({
+      audioBase64: null,
+      fallback: true,
+      message: 'No audio returned, using client vocal engine.',
+    });
   } catch (error: any) {
-    console.error('Server TTS error:', error?.message || error);
-    res.status(500).json({ error: error?.message || 'Failed to synthesize audio' });
+    console.warn('[Server TTS Warning]', error?.message || error);
+    res.json({
+      audioBase64: null,
+      fallback: true,
+      error: error?.message || 'Failed to synthesize audio',
+    });
   }
 });
 

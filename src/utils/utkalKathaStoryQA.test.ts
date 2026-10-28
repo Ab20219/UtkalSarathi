@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AUDIO_GUIDE_STORIES } from '../data/odishaHistoricalStories.ts';
+import type { AudioGuideStory } from '../types.ts';
 
 test('verifies Utkal Katha running story has complete documented history, architecture, and folklore', () => {
-  const konarkStory = AUDIO_GUIDE_STORIES.find((s) => s.id === 'story-konark');
+  const konarkStory = AUDIO_GUIDE_STORIES.find((s: AudioGuideStory) => s.id === 'story-konark');
   assert.ok(konarkStory, 'Konark story must exist');
   assert.ok(konarkStory.monument.includes('Konark'));
   assert.ok(konarkStory.documentedHistory.length > 200, 'Must have detailed documented history');
@@ -12,7 +13,7 @@ test('verifies Utkal Katha running story has complete documented history, archit
 });
 
 test('verifies running story question filtering strictly excludes unrelated transit and hotels', () => {
-  const konarkStory = AUDIO_GUIDE_STORIES.find((s) => s.id === 'story-konark')!;
+  const konarkStory = AUDIO_GUIDE_STORIES.find((s: AudioGuideStory) => s.id === 'story-konark')!;
   assert.ok(konarkStory, 'Konark story must exist');
   
   // Simulated story QA response generator
